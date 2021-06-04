@@ -43,7 +43,7 @@ from lxml import etree
 import inkex
 import inkex.command
 
-__version__ = '0.1'
+__version__ = '0.2'
 
 # Global "constants"
 SVG_SHAPES = ('rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon')
@@ -211,22 +211,39 @@ class IncadiffExtension(inkex.Effect):
                            "The elements can be part of selected groups, " +
                            "or directly selected.")
             return None
+        if len(id_list) > 64:
+            inkex.errormsg("You should not select more than 64 shapes/paths, " +
+                           "and ideally you should apply this extension to small groups of objects.")
+            return None
+        
         else:
             return id_list
 
     def get_sorted_ids(self):
-        """Return id of top-most object, and a list with z-sorted ids."""
-        top_path = None
+        """Return a list with z-sorted ids."""
         sorted_ids = None
         id_list = self.get_selected_ids()
         if id_list is not None:
             sorted_ids = list(z_iter(self.document.getroot(), id_list))
-            top_path = sorted_ids.pop()
-        return (top_path, sorted_ids)
+            return (sorted_ids)
+        else:
+            return
+        
 
-    def duplicate_and_diff(self, id_list):
+    def run_cmd(self, tempfile):
+        #ink_version = get_inkscape_version()
+        self.actions_list.append("FileSave")
+        extra_param = "--batch-process"
+        # if ink_version == "1.0":
+        #     self.actions_list.append("FileQuit")
+        #     extra_param = "--with-gui"
+        actions = ";".join(self.actions_list)
+        inkex.command.inkscape(tempfile, extra_param, actions=actions)
+
+    def duplicate_and_diff(self, id_list, tempfile):
         # for each selected path, duplicate and diff for each path below
-        for i in range(0, len(id_list)):
+        nb_shapes = len(id_list)
+        for i in range(0, nb_shapes):
             top_path = id_list[i]
             j = i
             while j > 0:
@@ -236,6 +253,12 @@ class IncadiffExtension(inkex.Effect):
                 self.actions_list.append("select-by-id:" + id_list[j])
                 self.actions_list.append("SelectionDiff")
                 self.actions_list.append("EditDeselect")
+            if nb_shapes > 20:
+                self.run_cmd(tempfile)
+                self.actions_list = []
+        if len(self.actions_list) > 0:
+            self.run_cmd(tempfile)
+            self.actions_list = []
 
     def loop_diff(self):
         """Loop through selected items and run external command(s)."""
@@ -249,18 +272,13 @@ class IncadiffExtension(inkex.Effect):
         copy2(self.options.input_file, tempfile)
 
         # loop through selected paths
-        id_list = self.get_selected_ids()
-        self.duplicate_and_diff(id_list)
-        ink_version = get_inkscape_version()
-        self.actions_list.append("FileSave")
-        self.actions_list.append("FileQuit")
-        extra_param = "--batch-process"
-        if ink_version == "1.0":
-            self.actions_list.append("FileQuit")
-            extra_param = "--with-gui"
-        actions = ";".join(self.actions_list)
-        inkex.command.inkscape(tempfile, extra_param, actions=actions)
+        id_list = self.get_sorted_ids()
+        if id_list is not None:
+            self.duplicate_and_diff(id_list, tempfile)
+        else:
+            return
 
+        
         # replace current document with content of temp copy file
         self.document = inkex.load_svg(tempfile)
         # update self.svg
